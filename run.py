@@ -55,9 +55,9 @@ def check_venv():
     """Check if virtual environment exists."""
     venv_python = get_venv_python()
     if not venv_python.exists():
-        print("❌ ERROR: Virtual environment not found!")
+        print("ERROR: Virtual environment not found!")
         print(f"   Expected location: {VENV_DIR}")
-        print("\n📝 Please create a virtual environment first:")
+        print("\nPlease create a virtual environment first:")
         print("   python -m venv .venv")
         print("\n   Then install dependencies:")
         if IS_WINDOWS:
@@ -73,7 +73,7 @@ def cleanup(signum=None, frame=None):
     """Cleanup function to terminate both processes."""
     global backend_process, frontend_process
     
-    print("\n\n🛑 Stopping servers...")
+    print("\n\nStopping servers...")
     
     if backend_process:
         print("   Stopping Flask backend...")
@@ -100,7 +100,7 @@ def cleanup(signum=None, frame=None):
         except Exception as e:
             print(f"   Warning: Could not stop frontend gracefully: {e}")
     
-    print("✅ Cleanup complete")
+    print("Cleanup complete")
     sys.exit(0)
 
 
@@ -108,7 +108,7 @@ def start_backend(venv_python):
     """Start the Flask backend server."""
     global backend_process
     
-    print("🚀 Starting Flask backend...")
+    print("Starting Flask backend...")
     
     # Construct the Flask command
     flask_cmd = [
@@ -136,7 +136,7 @@ def start_backend(venv_python):
                 cwd=BACKEND_DIR
             )
         
-        print(f"✅ Flask backend started (PID: {backend_process.pid})")
+        print(f"Flask backend started (PID: {backend_process.pid})")
         print(f"   Backend URL: http://localhost:5000")
         
         # Give Flask a moment to start
@@ -144,11 +144,11 @@ def start_backend(venv_python):
         
         # Check if process is still running
         if backend_process.poll() is not None:
-            print("❌ ERROR: Flask backend failed to start")
+            print("ERROR: Flask backend failed to start")
             sys.exit(1)
             
     except Exception as e:
-        print(f"❌ ERROR: Failed to start Flask backend: {e}")
+        print(f"ERROR: Failed to start Flask backend: {e}")
         sys.exit(1)
 
 
@@ -156,17 +156,17 @@ def start_frontend():
     """Start the Vite dev server."""
     global frontend_process
     
-    print("\n🚀 Starting Vite dev server...")
+    print("\nStarting Vite dev server...")
     
     # Check if node_modules exists
     node_modules = FRONTEND_DIR / "node_modules"
     if not node_modules.exists():
-        print("📦 Installing npm dependencies...")
+        print("Installing npm dependencies...")
         npm_cmd = ["npm.cmd" if IS_WINDOWS else "npm", "install"]
         try:
             subprocess.run(npm_cmd, cwd=FRONTEND_DIR, check=True)
         except subprocess.CalledProcessError as e:
-            print(f"❌ ERROR: Failed to install npm dependencies: {e}")
+            print(f"ERROR: Failed to install npm dependencies: {e}")
             cleanup()
             sys.exit(1)
     
@@ -179,15 +179,15 @@ def start_frontend():
             cwd=FRONTEND_DIR
         )
         
-        print(f"✅ Vite dev server started (PID: {frontend_process.pid})")
+        print(f"Vite dev server started (PID: {frontend_process.pid})")
         print(f"   Frontend URL: http://localhost:5173")
         print("\n" + "="*60)
-        print("🎉 Both servers are running!")
+        print("Both servers are running!")
         print("="*60)
-        print("\n💡 Press Ctrl+C to stop both servers\n")
+        print("\nPress Ctrl+C to stop both servers\n")
         
     except Exception as e:
-        print(f"❌ ERROR: Failed to start Vite dev server: {e}")
+        print(f"ERROR: Failed to start Vite dev server: {e}")
         cleanup()
         sys.exit(1)
 
@@ -195,7 +195,7 @@ def start_frontend():
 def main():
     """Main function to orchestrate the startup."""
     print("\n" + "="*60)
-    print("🔧 Starting Development Servers")
+    print("Starting Development Servers")
     print("="*60 + "\n")
     
     # Register signal handlers for cleanup
@@ -216,12 +216,12 @@ def main():
         while True:
             # Check if processes are still running
             if backend_process.poll() is not None:
-                print("\n❌ Backend process stopped unexpectedly")
+                print("\nBackend process stopped unexpectedly")
                 cleanup()
                 sys.exit(1)
             
             if frontend_process.poll() is not None:
-                print("\n❌ Frontend process stopped unexpectedly")
+                print("\nFrontend process stopped unexpectedly")
                 cleanup()
                 sys.exit(1)
             

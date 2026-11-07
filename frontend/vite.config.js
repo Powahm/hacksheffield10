@@ -1,21 +1,15 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import tailwindcss from "@tailwindcss/vite";
 
-const API_TARGET = process.env.VITE_API_URL || "http://localhost:5000";
+// Dev only: /api goes to the local Flask server. Production builds call VITE_API_URL.
+const API_TARGET = process.env.API_TARGET || "http://127.0.0.1:5000";
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react()],
   server: {
-    host: "0.0.0.0",
     port: 5173,
     proxy: {
-      // Proxy everything under /api to the Flask server; changeOrigin handles host header.
-      "/api": {
-        target: API_TARGET,
-        changeOrigin: true,
-        secure: false
-      }
-    }
-  }
+      "/api": { target: API_TARGET, changeOrigin: true },
+    },
+  },
 });

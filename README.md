@@ -1,33 +1,65 @@
-# hacksheffield10
+# TrendSwipe
 
-Basic Flask backend with a Vite + React frontend.
+Swipe through clothes. The feed learns what you keep.
 
-## Backend (Flask)
-1. Create/activate a virtualenv (if you don't already have one): `python -m venv .venv && source .venv/bin/activate`
-2. Install deps: `pip install -r requirements.txt`
-3. Run API: `cd backend && python -m flask --app wsgi --debug run --host 0.0.0.0 --port 5000`
+Drag a card right to keep it or left to pass. Every swipe moves the next pick closer to your taste, and each card's tag says why it was picked: "87% similar to the shirt you kept". A stylist chat answers questions about the piece in front of you, using what you have kept.
 
-Backend layout (app factory + blueprints):
+Built at HackSheffield 10, where it won the Grafana Labs prize. Rebuilt afterwards with a stateless recommender, a new interface and tests.
+
+## How the recommender works
+
+1. Every product is embedded with Gemini (`gemini-embedding-001`, 768 dimensions) from its name, category, description and tags.
+2. The browser keeps the visitor's swipe history and sends it with each request. The server keeps no per-user state, so any instance can answer any request and visitors never share a profile.
+3. Taste is an exponential moving average of the unit embeddings: plus for a kept piece, minus for a pass, recent swipes weighted more.
+4. The next card is the unseen product with the highest cosine similarity to that taste vector. With no taste yet, or 15% of the time, it picks from the least-seen category instead, so the feed does not collapse into one look.
+5. The whole catalogue is scored in memory with NumPy behind a five-minute cache, one database read per cache window.
+
+The code is in `backend/helpers/recommender.py`, and it is a pure function, tested in `backend/tests/test_recommender.py`.
+
+## Stack
+
+- **Frontend:** React 18, Vite, React Router, Zustand (swipe history and bag in local storage), Framer Motion for the swipe physics.
+- **Backend:** Flask app factory with blueprints, Supabase (Postgres) for the catalogue, Gemini for embeddings and the stylist.
+- **Tests:** pytest for the recommender and every API route.
+
+## API
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/api/health` | Liveness check |
+| GET | `/api/products` | The catalogue, without embeddings |
+| GET | `/api/products/<id>` | One product |
+| GET | `/api/products/search?q=` | Match on name, description, category or tag |
+| POST | `/api/feed/next` | `{"swipes": [{"id": 12, "kept": true}]}` returns the next pick, why it was picked, and how many are left |
+| POST | `/api/chat` | `{"message", "history", "product_id", "kept_ids"}` returns the stylist's reply. Rate limited per client. |
+| POST, PUT, DELETE | `/api/dashboard/products` | Brand studio edits. Need the `X-Admin-Token` header; off in production when no token is set. |
+
+## Run it locally
+
+You need Python 3.13, Node 20 or later, a Supabase project with a `products` table, and a Gemini API key.
+
+```bash
+cp .env.example .env          # fill in SUPABASE_URL, SUPABASE_KEY, GEMINI_API_KEY
+python -m venv .venv
+.venv/Scripts/activate        # macOS or Linux: source .venv/bin/activate
+pip install -r requirements.txt -r requirements-dev.txt
+
+cd backend
+python -m flask --app wsgi run --debug --port 5000
 ```
-backend/
-  app/
-    __init__.py        # create_app, register blueprints
-    config.py          # Dev/Prod configs
-    routes/
-      core.py          # health check, misc
-      products.py      # product APIs (mock data)
-      dashboard.py     # dashboard summary metrics
-  wsgi.py              # entrypoint for flask run / WSGI servers
-  app.py               # wrapper for create_app (for direct python app.py)
+
+In a second terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev                   # http://localhost:5173, proxies /api to Flask
 ```
 
-## Frontend (Vite + React)
-1. Install deps: `cd frontend && npm install`
+Run the tests from `backend/` with `python -m pytest`.
 
-## One-command dev
-- From repo root: `./run.sh`
-  - Starts Flask (uses `.venv` if present) and Vite dev server. Ctrl+C stops both.
+To re-embed the catalogue after changing the embedding model, or to load more products from DummyJSON, run `python -m scripts.seed_catalogue` from `backend/` for a dry run, then add `--apply`. It backs up every row first.
 
-# Additional Links
-[Planning GDoc](https://docs.google.com/document/d/1MT4SdZLEC-bVpvp3wWrfG7ge-RsYMCVKf6VB3071ums/edit?tab=t.0)
-[DevPost](https://devpost.com/software/trendswipe?ref_content=my-projects-tab&ref_feature=my_projects)
+## Credits
+
+Built by the HackSheffield 10 team. Product data and photos from [DummyJSON](https://dummyjson.com). The shop is a demo: prices are DummyJSON's and nothing can be bought.
