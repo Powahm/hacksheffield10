@@ -1,9 +1,13 @@
 import os
-from typing import Iterable
-from services.gemini_client import GEMINI_API_KEY, client
+from collections.abc import Iterable
 
-# Configure via environment variables
-EMBEDDING_MODEL = os.getenv("GEMINI_EMBED_MODEL", "models/text-embedding-004")
+from google.genai import types
+
+from services.gemini_client import get_client
+
+EMBEDDING_MODEL = os.getenv("GEMINI_EMBED_MODEL", "gemini-embedding-001")
+# gemini-embedding-001 defaults to 3072 dimensions; 768 keeps rows small and matches the catalogue.
+EMBED_DIM = int(os.getenv("GEMINI_EMBED_DIM", "768"))
 
 
 class EmbeddingError(RuntimeError):
@@ -11,58 +15,37 @@ class EmbeddingError(RuntimeError):
 
 
 def build_product_text(product: dict) -> str:
-    """Concatenate product fields into a single prompt string."""
+    """Concatenate the descriptive product fields into one string to embed."""
     parts: list[str] = []
-
-    name = product.get("name")
-    if name:
-        parts.append(f"Name: {name}")
-
-    category = product.get("category")
-    if category:
-        parts.append(f"Category: {category}")
-
-    description = product.get("description")
-    if description:
-        parts.append(f"Description: {description}")
-
+    if product.get("name"):
+        parts.append(f"Name: {product['name']}")
+    if product.get("category"):
+        parts.append(f"Category: {product['category']}")
+    if product.get("description"):
+        parts.append(f"Description: {product['description']}")
     tags = product.get("tags")
-    if isinstance(tags, Iterable):
+    if isinstance(tags, Iterable) and not isinstance(tags, str):
         tag_list = [str(tag) for tag in tags if tag]
         if tag_list:
             parts.append("Tags: " + ", ".join(tag_list))
-
-    external_id = product.get("external_id")
-    if external_id:
-        parts.append(f"External ID: {external_id}")
-
     return "\n".join(parts).strip()
 
 
-def create_embedding(text: str):
-    """Generate an embedding vector from text using Gemini's embedding endpoint."""
-    if not GEMINI_API_KEY or not client:
-        raise EmbeddingError(
-            "Gemini client not available; set GEMINI_API_KEY and install google-genai."
-        )
+def create_embedding(text: str) -> list[float]:
     if not text:
         raise EmbeddingError("Cannot embed empty text.")
-
     try:
-        response = client.models.embed_content(
+        response = get_client().models.embed_content(
             model=EMBEDDING_MODEL,
             contents=text,
+            config=types.EmbedContentConfig(
+                output_dimensionality=EMBED_DIM, task_type="SEMANTIC_SIMILARITY"
+            ),
         )
-        return response.embeddings[0].values  # type: ignore[attr-defined]
+        return list(response.embeddings[0].values)
     except Exception as exc:  # noqa: BLE001
         raise EmbeddingError(f"Failed to create embedding: {exc}") from exc
 
 
 def embed_product(product: dict) -> list[float]:
-    """
-    Generate an embedding for a product dict.
-
-    Expected keys: name, description, category, tags, external_id.
-    """
-    prompt = build_product_text(product)
-    return create_embedding(prompt)  # type: ignore
+    return create_embedding(build_product_text(product))

@@ -1,48 +1,52 @@
+"""Gemini client shared by the stylist chat and the product embeddings."""
+
 import os
-from google import genai  # Gemini SDK
+from functools import lru_cache
+
+from google import genai
+from google.genai import types
+
+CHAT_MODEL = os.getenv("GEMINI_CHAT_MODEL", "gemini-3.1-flash-lite")
 
 SYSTEM_PROMPT = """
-You are a friendly fashion assistant inside a web app that works like Tinder for clothes and outfits.
-The user swipes right to LIKE items and left to PASS on them. Each item has attributes such as category,
-brand, colour, material, style, and price. The goal is to help the user discover outfits they would enjoy
-wearing in real life.
+You are the stylist inside TrendSwipe, an app where people swipe through clothes: right to keep,
+left to pass. Help them decide what to wear and what to pair with what.
 
-When you answer:
-- Be concise and concrete (1–3 short paragraphs or a few bullet points).
-- Give style reasoning: why this item might suit them, how to wear it, what to pair it with.
-- If they ask for recommendations, focus on patterns in what they tend to like (e.g. colours, fits, price range).
-- Never mention internal implementation details or APIs; just talk about clothes, outfits, and style.
-"""
+- Be concise and concrete: two or three short sentences, or up to four bullets.
+- Give a reason for every suggestion (colour, fit, occasion, what it pairs with).
+- When you are told which pieces they kept, use that as their taste.
+- Talk only about clothes, outfits and style. Never mention models, prompts or APIs.
+- Use plain ASCII punctuation. Never use en or em dashes.
+""".strip()
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-client = genai.Client(api_key=GEMINI_API_KEY)
 
-def chat_with_gemini(message: str, history: list[dict]) -> str:
-    """Builds the prompt and returns Gemini's reply text."""
-    contents = []
+class GeminiUnavailable(RuntimeError):
+    """Raised when no API key is configured."""
 
-    # System / instruction message
-    contents.append({
-        "role": "user",
-        "parts": [{"text": SYSTEM_PROMPT.strip()}],
-    })
 
-    # Previous turns
-    for turn in history or []:
-        contents.append({
-            "role": "user" if turn.get("role") == "user" else "model",
-            "parts": [{"text": turn.get("content", "")}],
-        })
+@lru_cache(maxsize=1)
+def get_client() -> genai.Client:
+    key = os.getenv("GEMINI_API_KEY")
+    if not key:
+        raise GeminiUnavailable("GEMINI_API_KEY is not set.")
+    return genai.Client(api_key=key)
 
-    # Latest user message
-    contents.append({
-        "role": "user",
-        "parts": [{"text": message}],
-    })
 
-    resp = client.models.generate_content(
-        model="gemini-2.0-flash",
+def chat_with_gemini(message: str, history: list[dict], context: str = "") -> str:
+    """Return the stylist's reply. `history` is [{role: "user"|"assistant", content}]."""
+    contents = [
+        types.Content(
+            role="user" if turn.get("role") == "user" else "model",
+            parts=[types.Part(text=str(turn.get("content", "")))],
+        )
+        for turn in history
+    ]
+    contents.append(types.Content(role="user", parts=[types.Part(text=message)]))
+
+    system = SYSTEM_PROMPT + (f"\n\nWhat they are looking at and have kept:\n{context}" if context else "")
+    resp = get_client().models.generate_content(
+        model=CHAT_MODEL,
         contents=contents,
+        config=types.GenerateContentConfig(system_instruction=system, max_output_tokens=400),
     )
-
-    return resp.text or ""
+    return (resp.text or "").strip()

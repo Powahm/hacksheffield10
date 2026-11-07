@@ -1,143 +1,28 @@
 from flask import Blueprint, jsonify, request
-import requests
-from supabase_client import SUPABASE_URL, SUPABASE_KEY
-from services.embedding_client import embed_product
+
+import catalogue
+
+products_bp = Blueprint("products", __name__)
 
 
-products_bp = Blueprint("products", __name__, url_prefix="/")
-
-PRODUCTS_URL = "https://dummyjson.com/products"
-
-
-def _get_raw_products() -> list | tuple:
-    try:
-        response = requests.get(PRODUCTS_URL, timeout=5)
-        response.raise_for_status()
-        data = response.json()
-        return data.get("products", [])
-    except Exception as exc:  # noqa: BLE001
-        # Fallback to local data if the external API is unreachable.
-        print(f"[products] Falling back to mock data: {exc}")
-        return "Something went wrong", 500
-
-
-def parse_product(raw_product: dict) -> dict:
-    """Compatible with supabase 'products' table schema."""
-    images = raw_product.get("images", [])
-    image_url = images[0] if images else None
-
-    data = {
-        "external_id": raw_product.get("id"),
-        "name": raw_product.get("title"),
-        "tags": raw_product.get("tags", []),
-        "description": raw_product.get("description"),
-        "price": raw_product.get("price"),
-        "category": raw_product.get("category"),
-        "image_url": image_url,
-    }
-
-    embedding = embed_product(data)
-    data["embedding"] = embedding
-
-    return data
-
-
-def get_products() -> list:
-    raw_products = _get_raw_products()
-    return [parse_product(prod) for prod in raw_products]
-
-
-def __add_to_supabase() -> list:
-    """Fetch products from external API and add them to Supabase."""
-    raw_products = _get_raw_products()
-    products = [parse_product(prod) for prod in raw_products]
-    from supabase import create_client, Client
-
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        raise ValueError("Supabase URL or Key is not set.")
-
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    for product in products:
-        supabase.table("products").insert(product).execute()
-
-    return products
-
-
-def get_products_from_supabase() -> list:
-    """Fetch products data from Supabase."""
-    from supabase import create_client, Client
-
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        raise ValueError("Supabase URL or Key is not set.")
-
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    # Only select fields needed for display, exclude heavy embedding field
-    response = (
-        supabase.table("products")
-        .select(
-            "id, external_id, name, description, price, category, image_url, tags, created_at"
-        )
-        .execute()
-    )
-    return response.data
-
-
-@products_bp.get("/")
 @products_bp.get("")
+@products_bp.get("/")
 def list_products():
-    """List products from Supabase"""
-    products = get_products_from_supabase()
-    return jsonify(products)
+    return jsonify(catalogue.list_products())
 
 
-@products_bp.get("/send-to-supabase")
-def send_to_supabase():
-    """Test endpoint to add products to Supabase"""
-    __add_to_supabase()
-    return jsonify({"status": "Products added to Supabase successfully."})
+@products_bp.get("/<int:product_id>")
+def get_product(product_id: int):
+    product = catalogue.get_product(product_id)
+    if product is None:
+        return jsonify(error="No product with that id."), 404
+    return jsonify(product)
 
 
 @products_bp.get("/search")
 def search_products():
-    """Search products by name, description, category, or tags"""
     query = request.args.get("q", "").strip()
-    
     if not query:
-        return jsonify({"error": "Search query is required"}), 400
-    
-    try:
-        from supabase import create_client, Client
-
-        if not SUPABASE_URL or not SUPABASE_KEY:
-            raise ValueError("Supabase URL or Key is not set.")
-
-        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        
-        # Search in name, description, category, and tags
-        # Using ilike for case-insensitive search
-        query_pattern = f"%{query}%"
-        
-        response = (
-            supabase.table("products")
-            .select("id, external_id, name, description, price, category, image_url, tags, created_at")
-            .or_(f"name.ilike.{query_pattern},description.ilike.{query_pattern},category.ilike.{query_pattern}")
-            .execute()
-        )
-        
-        # Also filter by tags client-side (since Supabase array search can be tricky)
-        results = response.data
-        query_lower = query.lower()
-        
-        # Add products that match in tags
-        all_products = get_products_from_supabase()
-        for product in all_products:
-            if product not in results:
-                tags = product.get("tags", [])
-                if tags and any(query_lower in tag.lower() for tag in tags):
-                    results.append(product)
-        
-        return jsonify({"products": results, "count": len(results)})
-    
-    except Exception as e:
-        print(f"Search error: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify(error="Add a search term with ?q="), 400
+    results = catalogue.search(query[:100])
+    return jsonify(products=results, count=len(results))

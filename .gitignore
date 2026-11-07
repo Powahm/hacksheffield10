@@ -17,3 +17,5 @@ pyrightconfig.json
 
 #Extra - Roshan
 product-spec.md
+# Catalogue backups from scripts/seed_catalogue.py
+backend/scripts/backups/
